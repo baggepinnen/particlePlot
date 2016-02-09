@@ -1,99 +1,144 @@
+"""
+Weighted kernel density estimate of the data `x` ∈ ℜN with weights `w` ∈ ℜN
 
-function heatBoxPlot(plt, x, t, minmax, nbinsy=30)
-  if maximum(x)-minimum(x) > 0
-    heatmap!(plt, x=(t-1.5):1/length(x):(t-0.5),y=x',nbins=(1,nbinsy), ylims=tuple(minmax...))
-  end
-  return
+`xi, densityw, density = kde(x,w)`
+
+The number of grid points is chosen automatically and will approximately be equal to N/3
+The bandwidth of the Gaussian kernel is chosen based on Silverman's rule of thumb
+
+returns both weighted and non-weighted densities `densityw, density`
+"""
+function kde(x,w)
+    x   = x[:]
+    e   = histrange(x,ceil(Int,length(x)/3))
+    nb  = length(e)-1
+    np  = length(x)
+    I   = sortperm(x)
+    s   = (rand()/nb+0):1/nb:e[end]
+    j   = zeros(Float64,nb)
+    bo = 1
+    ilast = 0
+    for i = 1:np
+        ii = I[i]
+        for b = bo:nb
+            if x[ii] <= e[b+1]
+                j[b] += w[ii]
+                bo = b
+                ilast = i
+                break
+            end
+        end
+    end
+    j[end] += sum(w[I[ilast+1:np]])
+    @assert all(w .>= 0) "weights"
+    @assert all(j .>= 0) "j"
+    xi      = e[1:end-1]+0.5(e[2]-e[1])
+    σ       = std(x)
+    if σ == 0 # All mass on one point
+        return x,ones(x),ones(x)
+    end
+    h        = 1.06σ*np^(-1/5)
+    K(x)     = exp(-x.^2/(2h*σ^2)) / (√(2π)σ)
+    densityw = [1/h*sum(j.*K(xi.-xi[i])) for i=1:nb] # This density is effectively normalized by nb due to sum(j) = 1
+    density  = [1/(np*h)*sum(K(x.-xi[i])) for i=1:nb]
+
+    @assert all(densityw .>= 0) "densityw"
+    @assert all(density  .>= 0) "density"
+
+    return xi, densityw, density
+
 end
 
-function distPlotY(plt, x, t, minmax, color=:blue, nbinsy=30)
-  if maximum(x)-minimum(x) > 0
-    y, nbr = hist(x', nbinsy)
-    xval = nbr[:]#cumsum(nbr[:])
-    plot!(plt, [0, xval[:]]/xval[end], y, linecolor=color, ylims=tuple(minmax...))
-  end
-  return
+
+function heatBoxPlot(plt, x, t, minmax, nbinsy=30)
+    if maximum(x)-minimum(x) > 0
+        heatmap!(plt, x=(t-1):1/length(x):t,y=x',nbins=(1,nbinsy), ylims=tuple(minmax...))
+    end
+    return
+end
+
+function distPlotY(plt, x, w, t, minmax, color=:blue)
+    xi, densityw, density = kde(x,w)
+    if maximum(x)-minimum(x) > 0
+        plot!(plt, densityw, xi, linecolor=color, ylims=tuple(minmax...))
+        plot!(plt, density , xi, linecolor=:red, ylims=tuple(minmax...))
+    end
+    return
 end
 
 """ `plotPoints(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata)`
-
 To be called inside a particle filter, plots either particle density (`density=true`) or individual particles (`density=false`) \n
-To only plot the particle trajectories, set (`leftOnly=false`)\n
-Will plot all the real states in `pltxIdx` as well as the expected vs real measurements of `pltyIdx`.
-
+Will plot all the real states in `xIndices` as well as the expected vs real measurements of `yIndices`.
 Arguments: \n
-  * `x`: `Array(M,N)`. The states for each patyicle where `M` number of states, `N` number of Particles
-  * `w`: `Array(N)`. logprobability of each particle
-  * `y`: `Array(R,T)`. All true outputs. `R` is number of outputs, `T` is total number of time steps (will only use index `t`)
-  * `yhat`: `Array(R,N)` The expected output per particle. `R` is number of outputs, `N` number of Particles
-  * `N`, Number of particles
-  * `a`, `Array(N)`, reorderng of particles (e.g. `1:N`)
-  * `t`, Current time step
-  * `xreal`: `Array(M,T)`. All true states. `R` is number of states, `T` is total number of time steps (will only use index `t`)
-  * `xhat`: Not used
-  * `xOld`: Same as `x`, but for previous time step, only used when `!density` to show states origins
-  * `pdata`: Persistant data for plotting. Set to void in first call and pdataOut on remaining \n
+* `x`: `Array(M,N)`. The states for each patyicle where `M` number of states, `N` number of Particles
+* `w`: `Array(N)`. weight of each particle
+* `y`: `Array(R,T)`. All true outputs. `R` is number of outputs, `T` is total number of time steps (will only use index `t`)
+* `yhat`: `Array(R,N)` The expected output per particle. `R` is number of outputs, `N` number of Particles
+* `N`, Number of particles
+* `a`, `Array(N)`, reorderng of particles (e.g. `1:N`)
+* `t`, Current time step
+* `xreal`: `Array(M,T)`. All true states. `R` is number of states, `T` is total number of time steps (will only use index `t`)
+* `xhat`: Not used
+* `xOld`: Same as `x`, but for previous time step, only used when `!density` to show states origins
+* `pdata`: Persistant data for plotting. Set to void in first call and pdataOut on remaining \n
+* `density = true` To only plot the particle trajectories, set (`leftOnly=false`)\n
+* `leftOnly = false`\n
+* `xIndices = 1:size(x,1)`\n
+* `yIndices = 1:size(y,1)`\n
 Returns: `pdataOut`
 """
-function plotPoints(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata)
-  immerse()
-  leftOnly = false
-  density = true
-  cols = leftOnly?1:2
-  grd = (r,c) -> (r-1)*cols+c
-  println("Surviving: "*string((N-length(setdiff(Set(1:N),Set(a))))/N))
-  vals = [x;yhat]
-  realVals = [xreal;y]
-  valsOld = [xOld;yhat]
-  pltxIdx = [1,2,5, 6]# 7 9]
-  pltyIdx = [1,2]
-  pltIdx = [pltxIdx; size(x,1)+pltyIdx]
-  println(pltIdx)
-  if pdata == Void
-    pdata = (subplot(layout=cols*ones(Int,length(pltIdx))), Array{Float64,2}(length(pltIdx),2))
-    gui(pdata[1])
-  end
-  p, minmax = pdata
-  println(size(vals[pltIdx,:],2))
-  minmax = [min(minmax[:,1], minimum(vals[pltIdx,:],2)) max(minmax[:,2], maximum(vals[pltIdx,:],2))]
-  #c = exp(w[:]-minimum(w))*3
-  c = exp(w[:])*5*N
-  for (i, val) in enumerate(pltIdx)
-    if !leftOnly
-      oldFig = p.plts[grd(i,2)].o[1]
-      newPlot = plot()
+function plotPoints(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = true, leftOnly = false, xIndices = 1:size(x,1), yIndices = 1:size(y,1))
+    immerse()
+    cols = leftOnly?1:2
+    grd = (r,c) -> (r-1)*cols+c
+    println("Surviving: "*string((N-length(setdiff(Set(1:N),Set(a))))/N))
+    vals = [x;yhat]
+    realVals = [xreal;y]
+    if !density
+        valsOld = [xOld;yhat]
     end
-    if density
-      #Plot the heatmap on the left plot
-      heatBoxPlot(p.plts[grd(i,1)], vals[val,:], t, minmax[i,:])
+
+    pltIdx = [xIndices; size(x,1)+yIndices]
+    println(pltIdx)
+    if pdata == Void
+        pdata = (subplot(layout=cols*ones(Int,length(pltIdx))), Array{Float64,2}(length(pltIdx),2))
+        gui(pdata[1])
     end
-    for j = 1:N
-      if !density
-        #Plot the line on the left plot
-        plot!(p.plts[grd(i,1)], [t-1.5,t-1], [valsOld[val,j], valsOld[val,j]], legend=false)
-        plot!(p.plts[grd(i,1)], [t-1,t-0.5], [valsOld[val,a[j]], vals[val,j]], legend=false)
-      end
-      if !leftOnly && !density
-        #Plot each of the dots on the right side
-        plot!(newPlot, [j,j], [vals[val,j]',vals[val,j]'], marker=(:circle, :red, c[j])  , legend=false)
-      end
+    p, minmax = pdata
+    println(size(vals[pltIdx,:],2))
+    minmax = [min(minmax[:,1], minimum(vals[pltIdx,:],2)) max(minmax[:,2], maximum(vals[pltIdx,:],2))]
+    #c = (w[:]-minimum(w))*3
+    c = w[:]*5*N
+    for (i, val) in enumerate(pltIdx)
+        if !leftOnly
+            oldFig = p.plts[grd(i,2)].o[1]
+            newPlot = plot()
+        end
+        #Plot the heatmap on the left plot
+        density && heatBoxPlot(p.plts[grd(i,1)], vals[val,:], t, minmax[i,:])
+
+        for j = 1:N
+            if !density
+                #Plot the line on the left plot
+                plot!(p.plts[grd(i,1)], [t-1.5,t-1], [valsOld[val,j], valsOld[val,j]], legend=false)
+                plot!(p.plts[grd(i,1)], [t-1,t-0.5], [valsOld[val,a[j]], vals[val,j]], legend=false)
+            end
+            #Plot each of the dots on the right side
+            !leftOnly && !density && plot!(newPlot, [j,j], [vals[val,j]',vals[val,j]'], marker=(:circle, :red, c[j])  , legend=false)
+        end
+        if !leftOnly
+            density && distPlotY(newPlot, vals[val,:], w , t, minmax[i,:], :blue)
+            #Fix the bug with updating plot
+            p.plts[grd(i,2)] = copy(newPlot)
+            p.plts[grd(i,2)].o = (oldFig, p.plts[grd(i,2)].o[2])
+        end
+        #Plot Real State Here
+        plot!(p.plts[grd(i,1)], (t-1):t, [realVals[val,t], realVals[val,t]], legend=false, color=:black, linewidth=5)
     end
-    if !leftOnly
-      if density
-        distPlotY(newPlot, vals[val,:] , t, minmax[i,:], :blue)
-        #Weight can not be multiplied with value! DUH!
-        #distPlotY(newPlot, vals[val,:].*w' , t, :red)
-      end
-      #Fix the bug with updating plot
-      p.plts[grd(i,2)] = copy(newPlot)
-      p.plts[grd(i,2)].o = (oldFig, p.plts[grd(i,2)].o[2])
+    gui(p)
+    print("Waiting for command. q to Quit, ^D to run all:\n")
+    if readline(STDIN) == "q\n"
+        error("Quitting")
     end
-    #Plot Real State Here
-    plot!(p.plts[grd(i,1)], (t-1):t, [realVals[val,t], realVals[val,t]], legend=false, color=:black, linewidth=5)
-  end
-  gui(p)
-  print("Waiting for command. q to Quit, ^D to run all:\n")
-  if readline(STDIN) == "q\n"
-  end
-  (p, minmax)
+    (p, minmax)
 end
