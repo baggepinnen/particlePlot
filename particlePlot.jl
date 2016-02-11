@@ -10,7 +10,7 @@ returns both weighted and non-weighted densities `densityw, density`
 """
 function kde(x,w)
     x   = x[:]
-    e   = histrange(x,ceil(Int,length(x)/3))
+    e   = Base.histrange(x,ceil(Int,length(x)/3))
     nb  = length(e)-1
     np  = length(x)
     I   = sortperm(x)
@@ -66,27 +66,28 @@ function distPlotY(plt, x, w, t, minmax, color=:blue)
     return
 end
 
-""" `plotPoints(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata)`
-To be called inside a particle filter, plots either particle density (`density=true`) or individual particles (`density=false`) \n
-Will plot all the real states in `xIndices` as well as the expected vs real measurements of `yIndices`.
-Arguments: \n
-* `x`: `Array(M,N)`. The states for each patyicle where `M` number of states, `N` number of Particles
-* `w`: `Array(N)`. weight of each particle
-* `y`: `Array(R,T)`. All true outputs. `R` is number of outputs, `T` is total number of time steps (will only use index `t`)
-* `yhat`: `Array(R,N)` The expected output per particle. `R` is number of outputs, `N` number of Particles
-* `N`, Number of particles
-* `a`, `Array(N)`, reorderng of particles (e.g. `1:N`)
-* `t`, Current time step
-* `xreal`: `Array(M,T)`. All true states. `R` is number of states, `T` is total number of time steps (will only use index `t`)
-* `xhat`: Not used
-* `xOld`: Same as `x`, but for previous time step, only used when `!density` to show states origins
-* `pdata`: Persistant data for plotting. Set to void in first call and pdataOut on remaining \n
-* `density = true` To only plot the particle trajectories, set (`leftOnly=false`)\n
-* `leftOnly = false`\n
-* `xIndices = 1:size(x,1)`\n
-* `yIndices = 1:size(y,1)`\n
-Returns: `pdataOut`
-"""
+# """ `plotPoints(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata)`
+# To be called inside a particle filter, plots either particle density (`density=true`) or individual particles (`density=false`) \n
+# Will plot all the real states in `xIndices` as well as the expected vs real measurements of `yIndices`.
+# Arguments: \n
+# * `x`: `Array(M,N)`. The states for each patyicle where `M` number of states, `N` number of Particles
+# * `w`: `Array(N)`. weight of each particle
+# * `y`: `Array(R,T)`. All true outputs. `R` is number of outputs, `T` is total number of time steps (will only use index `t`)
+# * `yhat`: `Array(R,N)` The expected output per particle. `R` is number of outputs, `N` number of Particles
+# * `N`, Number of particles
+# * `a`, `Array(N)`, reorderng of particles (e.g. `1:N`)
+# * `t`, Current time step
+# * `xreal`: `Array(M,T)`. All true states. `R` is number of states, `T` is total number of time steps (will only use index `t`)
+# * `xhat`: Not used
+# * `xOld`: Same as `x`, but for previous time step, only used when `!density` to show states origins
+# * `pdata`: Persistant data for plotting. Set to void in first call and pdataOut on remaining \n
+# * `density = true` To only plot the particle trajectories, set (`leftOnly=false`)\n
+# * `leftOnly = false`\n
+# * `xIndices = 1:size(x,1)`\n
+# * `yIndices = 1:size(y,1)`\n
+# Returns: `pdataOut`
+# """
+
 function plotPoints(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = true, leftOnly = false, xIndices = 1:size(x,1), yIndices = 1:size(y,1))
     immerse()
     cols = leftOnly?1:2
@@ -99,16 +100,22 @@ function plotPoints(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = 
     end
 
     pltIdx = [xIndices; size(x,1)+yIndices]
-    println(pltIdx)
     if pdata == Void
-        pdata = (subplot(layout=cols*ones(Int,length(pltIdx))), Array{Float64,2}(length(pltIdx),2))
+        pdata = (subplot(layout=cols*ones(Int,length(pltIdx))), Array{Float64,2}(length(pltIdx),2),0,0)
         gui(pdata[1])
     end
-    p, minmax = pdata
-    println(size(vals[pltIdx,:],2))
+    p, minmax, skip, skipped = pdata
+    if skip > 0 && skipped < skip
+        skipped += 1
+        return (p, minmax, skip, skipped)
+    elseif skip > 0
+        skipped = 0
+        skip = 0
+    end
     minmax = [min(minmax[:,1], minimum(vals[pltIdx,:],2)) max(minmax[:,2], maximum(vals[pltIdx,:],2))]
     #c = (w[:]-minimum(w))*3
     c = w[:]*5*N
+
     for (i, val) in enumerate(pltIdx)
         if !leftOnly
             oldFig = p.plts[grd(i,2)].o[1]
@@ -118,6 +125,7 @@ function plotPoints(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = 
         density && heatBoxPlot(p.plts[grd(i,1)], vals[val,:], t, minmax[i,:])
 
         for j = 1:N
+
             if !density
                 #Plot the line on the left plot
                 plot!(p.plts[grd(i,1)], [t-1.5,t-1], [valsOld[val,j], valsOld[val,j]], legend=false)
@@ -136,9 +144,13 @@ function plotPoints(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = 
         plot!(p.plts[grd(i,1)], (t-1):t, [realVals[val,t], realVals[val,t]], legend=false, color=:black, linewidth=5)
     end
     gui(p)
-    print("Waiting for command. q to Quit, ^D to run all:\n")
-    if readline(STDIN) == "q\n"
+    print("Waiting for command. q to Quit, ^D to run all, s NN to skip NN steps:\n")
+    line = readline(STDIN)
+    if line == "q\n"
         error("Quitting")
+    elseif contains(line, "s")
+        ss = split(strip(line,'\n'))
+        skip = parse(Int,ss[2])
     end
-    (p, minmax)
+    (p, minmax, skip, skipped)
 end
