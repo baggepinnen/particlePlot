@@ -66,7 +66,7 @@ function distPlotY(plt, x, w, t, minmax, color=:blue)
     return
 end
 
-# """ `plotPoints(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata)`
+# """ `pplot(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata)`
 # To be called inside a particle filter, plots either particle density (`density=true`) or individual particles (`density=false`) \n
 # Will plot all the real states in `xIndices` as well as the expected vs real measurements of `yIndices`.
 # Arguments: \n
@@ -87,18 +87,62 @@ end
 # * `yIndices = 1:size(y,1)`\n
 # Returns: `pdataOut`
 # """
+function pplot(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = true, leftOnly = false, xIndices = 1:size(x,1), yIndices = 1:size(y,1))
+  immerse()
+  cols = leftOnly?1:2
+  grd = (r,c) -> (r-1)*cols+c
+  println("Surviving: "*string((N-length(setdiff(Set(1:N),Set(a))))/N))
+  vals = [x;yhat]
+  realVals = [xreal;y]
+  if !density
+      valsOld = [xOld;yhat]
+  end
 
-function plotPoints(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = true, leftOnly = false, xIndices = 1:size(x,1), yIndices = 1:size(y,1))
-    immerse()
-    cols = leftOnly?1:2
-    grd = (r,c) -> (r-1)*cols+c
-    println("Surviving: "*string((N-length(setdiff(Set(1:N),Set(a))))/N))
-    vals = [x;yhat]
-    realVals = [xreal;y]
-    if !density
-        valsOld = [xOld;yhat]
-    end
+  pltIdx = [xIndices; size(x,1)+yIndices]
+  if pdata == Void
+      pdata = (subplot(layout=cols*ones(Int,length(pltIdx))), Array{Float64,2}(length(pltIdx),2))
+      gui(pdata[1])
+  end
+  p, minmax = pdata
+  minmax = [min(minmax[:,1], minimum(vals[pltIdx,:],2)) max(minmax[:,2], maximum(vals[pltIdx,:],2))]
+  #c = (w[:]-minimum(w))*3
+  c = w[:]*5*N
 
+  for (i, val) in enumerate(pltIdx)
+      if !leftOnly
+          oldFig = p.plts[grd(i,2)].o[1]
+          newPlot = plot()
+      end
+      #Plot the heatmap on the left plot
+      density && heatBoxPlot(p.plts[grd(i,1)], vals[val,:], t, minmax[i,:])
+
+      for j = 1:N
+
+          if !density
+              #Plot the line on the left plot
+              plot!(p.plts[grd(i,1)], [t-1.5,t-1], [valsOld[val,j], valsOld[val,j]], legend=false)
+              plot!(p.plts[grd(i,1)], [t-1,t-0.5], [valsOld[val,a[j]], vals[val,j]], legend=false)
+          end
+          #Plot each of the dots on the right side
+          !leftOnly && !density && plot!(newPlot, [j,j], [vals[val,j]',vals[val,j]'], marker=(:circle, :red, c[j])  , legend=false)
+      end
+      if !leftOnly
+          density && distPlotY(newPlot, vals[val,:], w , t, minmax[i,:], :blue)
+          #Fix the bug with updating plot
+          p.plts[grd(i,2)] = copy(newPlot)
+          p.plts[grd(i,2)].o = (oldFig, p.plts[grd(i,2)].o[2])
+      end
+      #Plot Real State Here
+      plot!(p.plts[grd(i,1)], (t-1):t, [realVals[val,t], realVals[val,t]], legend=false, color=:black, linewidth=5)
+  end
+  gui(p)
+  (p, minmax)
+end
+
+# """ `pploti(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata)`
+# Same function as pplot but with options to skip, wait and quit.
+# """
+function pploti(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = true, leftOnly = false, xIndices = 1:size(x,1), yIndices = 1:size(y,1))
     pltIdx = [xIndices; size(x,1)+yIndices]
     if pdata == Void
         pdata = (subplot(layout=cols*ones(Int,length(pltIdx))), Array{Float64,2}(length(pltIdx),2),0,0)
@@ -112,38 +156,7 @@ function plotPoints(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = 
         skipped = 0
         skip = 0
     end
-    minmax = [min(minmax[:,1], minimum(vals[pltIdx,:],2)) max(minmax[:,2], maximum(vals[pltIdx,:],2))]
-    #c = (w[:]-minimum(w))*3
-    c = w[:]*5*N
-
-    for (i, val) in enumerate(pltIdx)
-        if !leftOnly
-            oldFig = p.plts[grd(i,2)].o[1]
-            newPlot = plot()
-        end
-        #Plot the heatmap on the left plot
-        density && heatBoxPlot(p.plts[grd(i,1)], vals[val,:], t, minmax[i,:])
-
-        for j = 1:N
-
-            if !density
-                #Plot the line on the left plot
-                plot!(p.plts[grd(i,1)], [t-1.5,t-1], [valsOld[val,j], valsOld[val,j]], legend=false)
-                plot!(p.plts[grd(i,1)], [t-1,t-0.5], [valsOld[val,a[j]], vals[val,j]], legend=false)
-            end
-            #Plot each of the dots on the right side
-            !leftOnly && !density && plot!(newPlot, [j,j], [vals[val,j]',vals[val,j]'], marker=(:circle, :red, c[j])  , legend=false)
-        end
-        if !leftOnly
-            density && distPlotY(newPlot, vals[val,:], w , t, minmax[i,:], :blue)
-            #Fix the bug with updating plot
-            p.plts[grd(i,2)] = copy(newPlot)
-            p.plts[grd(i,2)].o = (oldFig, p.plts[grd(i,2)].o[2])
-        end
-        #Plot Real State Here
-        plot!(p.plts[grd(i,1)], (t-1):t, [realVals[val,t], realVals[val,t]], legend=false, color=:black, linewidth=5)
-    end
-    gui(p)
+    p, minmax = pplot(x, w, y, yhat, N, a, t, xreal, xhat, xOld, (p, minmax), density = density, leftOnly = leftOnly, xIndices = xIndices, yIndices = yIndices)
     print("Waiting for command. q to Quit, ^D to run all, s NN to skip NN steps:\n")
     line = readline(STDIN)
     if line == "q\n"
