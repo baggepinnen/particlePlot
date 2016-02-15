@@ -117,7 +117,6 @@ function pplot(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = true,
       density && heatBoxPlot(p.plts[grd(i,1)], vals[val,:], t, minmax[i,:])
 
       for j = 1:N
-
           if !density
               #Plot the line on the left plot
               plot!(p.plts[grd(i,1)], [t-1.5,t-1], [valsOld[val,j], valsOld[val,j]], legend=false)
@@ -143,6 +142,7 @@ end
 # Same function as pplot but with options to skip, wait and quit.
 # """
 function pploti(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = true, leftOnly = false, xIndices = 1:size(x,1), yIndices = 1:size(y,1))
+    cols = leftOnly?1:2
     pltIdx = [xIndices; size(x,1)+yIndices]
     if pdata == Void
         pdata = (subplot(layout=cols*ones(Int,length(pltIdx))), Array{Float64,2}(length(pltIdx),2),0,0)
