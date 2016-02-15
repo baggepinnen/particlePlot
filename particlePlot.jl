@@ -38,7 +38,7 @@ function kde(x,w)
         return x,ones(x),ones(x)
     end
     h        = 1.06σ*np^(-1/5)
-    K(x)     = exp(-x.^2/(2h*σ^2)) / (√(2π)σ)
+    K(x)     = exp(-(x/h).^2/2) / √(2π)
     densityw = [1/h*sum(j.*K(xi.-xi[i])) for i=1:nb] # This density is effectively normalized by nb due to sum(j) = 1
     density  = [1/(np*h)*sum(K(x.-xi[i])) for i=1:nb]
 
@@ -87,7 +87,7 @@ end
 # * `yIndices = 1:size(y,1)`\n
 # Returns: `pdataOut`
 # """
-function pplot(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = true, leftOnly = false, xIndices = 1:size(x,1), yIndices = 1:size(y,1))
+function pplot(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = true, leftOnly = false, xIndices = 1:size(x,1), yIndices = 1:size(y,1), slidef=0.9)
   immerse()
   cols = leftOnly?1:2
   grd = (r,c) -> (r-1)*cols+c
@@ -100,11 +100,13 @@ function pplot(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = true,
 
   pltIdx = [xIndices; size(x,1)+yIndices]
   if pdata == Void
-      pdata = (subplot(layout=cols*ones(Int,length(pltIdx))), Array{Float64,2}(length(pltIdx),2))
+      pdata = (subplot(layout=cols*ones(Int,length(pltIdx))), zeros(length(pltIdx),2))
       gui(pdata[1])
   end
   p, minmax = pdata
-  minmax = [min(minmax[:,1], minimum(vals[pltIdx,:],2)) max(minmax[:,2], maximum(vals[pltIdx,:],2))]
+  dataMin = minimum(vals[pltIdx,:],2)
+  dataMax = maximum(vals[pltIdx,:],2)
+  minmax = [min(minmax[:,1], dataMin)*slidef+(1-slidef)*dataMin max(minmax[:,2], dataMax)*slidef+(1-slidef)*dataMax]
   #c = (w[:]-minimum(w))*3
   c = w[:]*5*N
 
@@ -141,7 +143,7 @@ end
 # """ `pploti(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata)`
 # Same function as pplot but with options to skip, wait and quit.
 # """
-function pploti(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = true, leftOnly = false, xIndices = 1:size(x,1), yIndices = 1:size(y,1))
+function pploti(x, w, y, yhat, N, a, t, xreal, xhat, xOld, pdata; density = true, leftOnly = false, xIndices = 1:size(x,1), yIndices = 1:size(y,1), slidef=0.9)
     cols = leftOnly?1:2
     pltIdx = [xIndices; size(x,1)+yIndices]
     if pdata == Void
